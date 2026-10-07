@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:mycrmsync/core/config.dart';
 import 'package:mycrmsync/models/add_contact_form.dart';
-import 'package:mycrmsync/platform/native_bridges.dart';
 import 'package:mycrmsync/providers/providers.dart';
 import 'package:mycrmsync/services/business_card_scan_service.dart';
+import 'package:mycrmsync/services/call_platform.dart';
 import 'package:mycrmsync/theme/app_theme.dart';
 import 'package:mycrmsync/ui/widgets/add_contact_sheet.dart';
 import 'package:mycrmsync/ui/widgets/app_shell.dart';
 import 'package:mycrmsync/ui/widgets/contact_list_card.dart';
 import 'package:mycrmsync/ui/widgets/tag_selection_dialog.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class ContactsScreen extends ConsumerStatefulWidget {
   const ContactsScreen({
@@ -195,13 +193,10 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
 
   Future<void> _call(String? phone) async {
     if (phone == null || phone.isEmpty) return;
-    if (AppConfig.isAndroid) {
-      try {
-        await NativeBridges.placeCall(phone);
-        return;
-      } catch (_) {}
+    final opened = await callPlatform.placeCall(phone);
+    if (!opened) {
+      _snack('Could not open the phone app for this number.');
     }
-    await launchUrl(Uri(scheme: 'tel', path: phone));
   }
 
   String _id(Map<String, dynamic> c) =>

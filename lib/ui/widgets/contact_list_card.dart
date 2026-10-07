@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:mycrmsync/models/add_contact_form.dart';
+import 'package:mycrmsync/services/external_links.dart';
 import 'package:mycrmsync/theme/app_theme.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 /// Contact card matching the Compose [ContactListCard] / screenshot layout.
 class ContactListCard extends StatelessWidget {
@@ -243,15 +243,15 @@ class ContactListCard extends StatelessWidget {
                 ),
                 _ActionIcon(
                   icon: Icons.sms_outlined,
-                  onTap: phone == null ? null : () => _sms(phone),
+                  onTap: phone == null ? null : () => _sms(context, phone),
                 ),
                 _ActionIcon(
                   icon: Icons.email_outlined,
-                  onTap: email == null ? null : () => _email(email),
+                  onTap: email == null ? null : () => _email(context, email),
                 ),
                 _ActionIcon(
                   iconAsset: 'assets/whatsapp_icon.png',
-                  onTap: phone == null ? null : () => _whatsapp(phone),
+                  onTap: phone == null ? null : () => _whatsapp(context, phone),
                 ),
                 _ActionIcon(
                   icon: Icons.phone_in_talk,
@@ -287,19 +287,34 @@ class ContactListCard extends StatelessWidget {
     return '${s}s';
   }
 
-  Future<void> _sms(String phone) async {
-    await launchUrl(Uri.parse('sms:$phone'));
+  Future<void> _sms(BuildContext context, String phone) {
+    return openExternalLink(
+      context,
+      Uri.parse('sms:$phone'),
+      failureMessage: 'Could not open the Messages app for this number.',
+    );
   }
 
-  Future<void> _email(String email) async {
-    await launchUrl(Uri.parse('mailto:$email'));
+  Future<void> _email(BuildContext context, String email) {
+    return openExternalLink(
+      context,
+      Uri.parse('mailto:$email'),
+      failureMessage: 'Could not open an email app for this address.',
+    );
   }
 
-  Future<void> _whatsapp(String phone) async {
-    final digits = phone.replaceAll(RegExp(r'[^\d+]'), '');
-    await launchUrl(
-      Uri.parse('https://wa.me/${digits.replaceFirst('+', '')}'),
-      mode: LaunchMode.externalApplication,
+  Future<void> _whatsapp(BuildContext context, String phone) {
+    final digits = phone.replaceAll(RegExp(r'[^\d+]'), '').replaceFirst('+', '');
+    if (digits.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This contact does not have a usable phone number.')),
+      );
+      return Future.value();
+    }
+    return openExternalLink(
+      context,
+      Uri.parse('https://wa.me/$digits'),
+      failureMessage: 'Could not open WhatsApp.',
     );
   }
 }

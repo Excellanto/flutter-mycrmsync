@@ -4,12 +4,12 @@ import 'package:intl/intl.dart';
 import 'package:mycrmsync/core/config.dart';
 import 'package:mycrmsync/platform/native_bridges.dart';
 import 'package:mycrmsync/providers/providers.dart';
+import 'package:mycrmsync/services/call_platform.dart';
 import 'package:mycrmsync/services/recording_ai_upload.dart';
 import 'package:mycrmsync/theme/app_theme.dart';
 import 'package:mycrmsync/ui/screens/whatsapp_post_call_dialog.dart';
 import 'package:mycrmsync/ui/widgets/app_shell.dart';
 import 'package:mycrmsync/ui/widgets/recording_player_sheet.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class CallLogsScreen extends ConsumerStatefulWidget {
   const CallLogsScreen({super.key, required this.onNavigate});
@@ -132,13 +132,12 @@ class _CallLogsScreenState extends ConsumerState<CallLogsScreen> {
 
   Future<void> _call(String phone) async {
     if (phone.isEmpty) return;
-    if (AppConfig.isAndroid) {
-      try {
-        await NativeBridges.placeCall(phone);
-        return;
-      } catch (_) {}
+    final opened = await callPlatform.placeCall(phone);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the phone app for this number.')),
+      );
     }
-    await launchUrl(Uri(scheme: 'tel', path: phone));
   }
 
   Future<void> _openPlayer(_CallLogVm row) async {

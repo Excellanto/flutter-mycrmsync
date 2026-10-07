@@ -2,18 +2,19 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:mycrmsync/providers/providers.dart';
 import 'package:mycrmsync/services/call_note_format.dart';
+import 'package:mycrmsync/services/external_links.dart';
 import 'package:mycrmsync/services/timeline_note_parser.dart';
 import 'package:mycrmsync/theme/app_theme.dart';
 import 'package:mycrmsync/ui/widgets/recording_player_sheet.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class _NoteAttachmentPreview {
   const _NoteAttachmentPreview({
@@ -497,43 +498,65 @@ class _ContactNotesScreenState extends ConsumerState<ContactNotesScreen> {
   }
 
   Future<void> _pickImage() async {
-    final file = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 92,
-      requestFullMetadata: false,
-    );
-    if (file == null) return;
-    final name = file.name.trim().isEmpty
-        ? 'image_${DateTime.now().millisecondsSinceEpoch}.jpg'
-        : file.name;
-    final mime = (file.mimeType ?? '').trim().isNotEmpty
-        ? file.mimeType!
-        : _mimeForFileName(name, fallbackImage: true);
-    await _uploadPickedFile(
-      path: file.path,
-      name: name,
-      mimeHint: mime,
-    );
+    try {
+      final file = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 92,
+        requestFullMetadata: false,
+      );
+      if (file == null || !mounted) return;
+      final name = file.name.trim().isEmpty
+          ? 'image_${DateTime.now().millisecondsSinceEpoch}.jpg'
+          : file.name;
+      final mime = (file.mimeType ?? '').trim().isNotEmpty
+          ? file.mimeType!
+          : _mimeForFileName(name, fallbackImage: true);
+      await _uploadPickedFile(
+        path: file.path,
+        name: name,
+        mimeHint: mime,
+      );
+    } on PlatformException catch (e) {
+      _snack(_imagePickerMessage(e));
+    } catch (_) {
+      _snack('Could not open the photo library.');
+    }
+  }
+
+  String _imagePickerMessage(PlatformException e) {
+    final code = e.code.toLowerCase();
+    if (code.contains('denied') ||
+        code.contains('restricted') ||
+        code.contains('permission')) {
+      return 'Photo library access is turned off. Enable it in Settings to attach an image.';
+    }
+    return e.message ?? 'Could not open the photo library.';
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
-      withData: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final f = result.files.first;
-    final path = f.path;
-    if (path == null) {
-      _snack('Could not access selected file');
-      return;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty || !mounted) return;
+      final f = result.files.first;
+      final path = f.path;
+      if (path == null) {
+        _snack('Could not access selected file');
+        return;
+      }
+      await _uploadPickedFile(
+        path: path,
+        name: f.name,
+        mimeHint: _mimeForFileName(f.name),
+      );
+    } on PlatformException catch (e) {
+      _snack(e.message ?? 'Could not open the file picker.');
+    } catch (_) {
+      _snack('Could not open the file picker.');
     }
-    await _uploadPickedFile(
-      path: path,
-      name: f.name,
-      mimeHint: _mimeForFileName(f.name),
-    );
   }
 
   String _mimeForFileName(String name, {bool fallbackImage = false}) {
@@ -554,29 +577,45 @@ class _ContactNotesScreenState extends ConsumerState<ContactNotesScreen> {
 
   Future<void> _toggleVoiceRecord() async {
     if (_recording) {
-      final path = await _audioRecorder.stop();
+      try {
+        final path = await _audioRecorder.stop();
+        if (!mounted) return;
+        setState(() {
+          _recording = false;
+          _recordingPath = path ?? _recordingPath;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _recording = false);
+        _snack('Could not stop the recording.');
+      }
+      return;
+    }
+    try {
+      final mic = await Permission.microphone.request();
+      if (!mic.isGranted) {
+        _snack(
+          mic.isPermanentlyDenied || mic.isRestricted
+              ? 'Microphone access is turned off. Enable it in Settings to record voice notes.'
+              : 'Microphone permission is required for voice notes.',
+        );
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final out =
+          '${dir.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _audioRecorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path: out,
+      );
+      if (!mounted) return;
       setState(() {
-        _recording = false;
-        _recordingPath = path ?? _recordingPath;
+        _recording = true;
+        _recordingPath = out;
       });
-      return;
+    } catch (_) {
+      _snack('Could not start the voice recording.');
     }
-    final mic = await Permission.microphone.request();
-    if (!mic.isGranted) {
-      _snack('Microphone permission is required for voice notes.');
-      return;
-    }
-    final dir = await getTemporaryDirectory();
-    final out =
-        '${dir.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _audioRecorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc),
-      path: out,
-    );
-    setState(() {
-      _recording = true;
-      _recordingPath = out;
-    });
   }
 
   Future<void> _uploadVoiceToAi() async {
@@ -1614,9 +1653,10 @@ class _TimelineEntryState extends State<_TimelineEntry> {
                                         d.name,
                                         style: const TextStyle(fontSize: 12),
                                       ),
-                                      onPressed: () => launchUrl(
+                                      onPressed: () => openExternalLink(
+                                        context,
                                         Uri.parse(d.openUrl),
-                                        mode: LaunchMode.externalApplication,
+                                        failureMessage: 'Could not open this file.',
                                       ),
                                     ),
                                   )

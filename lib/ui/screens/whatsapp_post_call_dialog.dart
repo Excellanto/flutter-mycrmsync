@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -281,81 +282,122 @@ class _WhatsAppPostCallDialogState extends ConsumerState<WhatsAppPostCallDialog>
   }
 
   Future<void> _pickImage() async {
-    final file = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 92,
-      requestFullMetadata: false,
-    );
-    if (file == null) return;
-    final name = file.name.trim().isEmpty
-        ? 'image_${DateTime.now().millisecondsSinceEpoch}.jpg'
-        : file.name;
-    final mime = (file.mimeType ?? '').trim().isNotEmpty
-        ? file.mimeType!
-        : _mimeForFileName(name, fallbackImage: true);
-    await _uploadPickedFile(path: file.path, name: name, mimeHint: mime);
+    try {
+      final file = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 92,
+        requestFullMetadata: false,
+      );
+      if (file == null || !mounted) return;
+      final name = file.name.trim().isEmpty
+          ? 'image_${DateTime.now().millisecondsSinceEpoch}.jpg'
+          : file.name;
+      final mime = (file.mimeType ?? '').trim().isNotEmpty
+          ? file.mimeType!
+          : _mimeForFileName(name, fallbackImage: true);
+      await _uploadPickedFile(path: file.path, name: name, mimeHint: mime);
+    } on PlatformException catch (e) {
+      final code = e.code.toLowerCase();
+      _snack(
+        code.contains('denied') ||
+                code.contains('restricted') ||
+                code.contains('permission')
+            ? 'Photo library access is turned off. Enable it in Settings to attach an image.'
+            : (e.message ?? 'Could not open the photo library.'),
+      );
+    } catch (_) {
+      _snack('Could not open the photo library.');
+    }
   }
 
   Future<void> _pickVoiceNote() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'amr'],
-      withData: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
-    final path = file.path;
-    if (path == null) {
-      _snack('Could not access selected voice note');
-      return;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'amr'],
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty || !mounted) return;
+      final file = result.files.first;
+      final path = file.path;
+      if (path == null) {
+        _snack('Could not access selected voice note');
+        return;
+      }
+      final name = file.name.trim().isEmpty
+          ? 'voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a'
+          : file.name;
+      await _uploadPickedFile(
+        path: path,
+        name: name,
+        mimeHint: _mimeForFileName(name),
+      );
+    } on PlatformException catch (e) {
+      _snack(e.message ?? 'Could not open the file picker.');
+    } catch (_) {
+      _snack('Could not open the file picker.');
     }
-    final name = file.name.trim().isEmpty
-        ? 'voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a'
-        : file.name;
-    await _uploadPickedFile(
-      path: path,
-      name: name,
-      mimeHint: _mimeForFileName(name),
-    );
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
-      withData: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-    final file = result.files.first;
-    final path = file.path;
-    if (path == null) {
-      _snack('Could not access selected file');
-      return;
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty || !mounted) return;
+      final file = result.files.first;
+      final path = file.path;
+      if (path == null) {
+        _snack('Could not access selected file');
+        return;
+      }
+      await _uploadPickedFile(path: path, name: file.name, mimeHint: _mimeForFileName(file.name));
+    } on PlatformException catch (e) {
+      _snack(e.message ?? 'Could not open the file picker.');
+    } catch (_) {
+      _snack('Could not open the file picker.');
     }
-    await _uploadPickedFile(path: path, name: file.name, mimeHint: _mimeForFileName(file.name));
   }
 
   Future<void> _toggleVoiceRecord() async {
     if (_recording) {
-      final path = await _audioRecorder.stop();
+      try {
+        final path = await _audioRecorder.stop();
+        if (!mounted) return;
+        setState(() {
+          _recording = false;
+          _recordingPath = path ?? _recordingPath;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _recording = false);
+        _snack('Could not stop the recording.');
+      }
+      return;
+    }
+    try {
+      final mic = await Permission.microphone.request();
+      if (!mic.isGranted) {
+        _snack(
+          mic.isPermanentlyDenied || mic.isRestricted
+              ? 'Microphone access is turned off. Enable it in Settings to record voice notes.'
+              : 'Microphone permission is required for voice notes.',
+        );
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final out = '${dir.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _audioRecorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: out);
+      if (!mounted) return;
       setState(() {
-        _recording = false;
-        _recordingPath = path ?? _recordingPath;
+        _recording = true;
+        _recordingPath = out;
       });
-      return;
+    } catch (_) {
+      _snack('Could not start the voice recording.');
     }
-    final mic = await Permission.microphone.request();
-    if (!mic.isGranted) {
-      _snack('Microphone permission is required for voice notes.');
-      return;
-    }
-    final dir = await getTemporaryDirectory();
-    final out = '${dir.path}/voice_note_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _audioRecorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: out);
-    setState(() {
-      _recording = true;
-      _recordingPath = out;
-    });
   }
 
   Future<void> _uploadVoiceToAi() async {

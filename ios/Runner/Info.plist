@@ -67,12 +67,18 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>MyCrmSync needs the microphone to record contact voice notes.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>MyCrmSync needs photo access to scan business cards and attach images to contact notes.</string>
+	<string>MyCrmSync uses the microphone to record voice notes you attach to contacts.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>MyCrmSync needs the camera to scan business cards and capture note attachments.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>MyCrmSync may save captured business card images to your photo library when needed.</string>
+	<string>MyCrmSync uses the camera so you can photograph a business card and add that contact.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>MyCrmSync uses your photo library so you can attach an image to a note or scan a business card from a photo you already have.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>tel</string>
+		<string>sms</string>
+		<string>mailto</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

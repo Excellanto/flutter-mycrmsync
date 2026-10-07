@@ -51,6 +51,13 @@ class BusinessCardScanService {
 
     if (source == ImageSource.camera) {
       final cam = await Permission.camera.request();
+      if (cam.isPermanentlyDenied || cam.isRestricted) {
+        throw PlatformException(
+          code: 'PERMISSION',
+          message:
+              'Camera access is turned off. Enable it in Settings to scan a business card.',
+        );
+      }
       if (!cam.isGranted) {
         throw PlatformException(
           code: 'PERMISSION',
@@ -59,12 +66,38 @@ class BusinessCardScanService {
       }
     }
 
-    final photo = await _picker.pickImage(
-      source: source,
-      imageQuality: 92,
-      maxWidth: 2500,
-    );
-    return photo?.path;
+    try {
+      final photo = await _picker.pickImage(
+        source: source,
+        imageQuality: 92,
+        maxWidth: 2500,
+      );
+      return photo?.path;
+    } on PlatformException catch (e) {
+      throw PlatformException(
+        code: e.code,
+        message: _imagePickerMessage(source, e),
+      );
+    }
+  }
+
+  String _imagePickerMessage(ImageSource source, PlatformException e) {
+    final code = e.code.toLowerCase();
+    final denied = code.contains('denied') ||
+        code.contains('restricted') ||
+        code.contains('permission');
+    if (source == ImageSource.camera && (denied || code.contains('camera'))) {
+      if (code.contains('unavailable') || code.contains('not_available')) {
+        return 'The camera is not available on this device.';
+      }
+      if (denied) {
+        return 'Camera access is turned off. Enable it in Settings to scan a business card.';
+      }
+    }
+    if (denied) {
+      return 'Photo library access is turned off. Enable it in Settings to choose a business card photo.';
+    }
+    return e.message ?? 'Could not open the camera or photo library.';
   }
 
   /// Parse a captured image path / content URI into contact fields.
